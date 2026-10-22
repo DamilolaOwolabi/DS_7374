@@ -69,4 +69,4 @@ streamlit run local_dashboard.py
 - **Filtering**: Dynamic data filtering by genre, platform, year, etc.
 
 ## Data
-The application generates synthetic Nintendo video game data for demonstration purposes. In a production environment, you would replace this with real data sources. 
+The app loads `deku_cleaned_final.csv` (22,123 Nintendo eShop games scraped from DekuDeals and cleaned). Keep that file next to `app.py` when deploying; the Hugging Face Space needs it too. 

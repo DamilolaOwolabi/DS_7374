@@ -209,55 +209,54 @@ def cut(series, bins, labels):
             result.append(labels[-1])
     return result
 
+DATA_FILE = "deku_cleaned_final.csv"
+
+# Columns the dashboard and model use, with how to read each one from the CSV
+NUMERIC_COLS = [
+    'msrp', 'release_year', 'game_age', 'platform_count', 'min_players', 'max_players',
+    'genre_count', 'is_multiplayer', 'is_sequel', 'mode_handheld', 'mode_docked', 'mode_tabletop'
+]
+TEXT_COLS = ['title', 'genre_primary_grouped', 'platform_cleaned', 'publisher_grouped', 'languages']
+INT_COLS = {'release_year', 'platform_count', 'min_players', 'max_players', 'genre_count',
+            'is_multiplayer', 'is_sequel', 'mode_handheld', 'mode_docked', 'mode_tabletop'}
+
+
+def _to_number(value, as_int):
+    """Convert a CSV cell ('2022.0', 'True', '') to a number."""
+    value = (value or '').strip()
+    if value in ('True', 'true'):
+        return 1
+    if value in ('False', 'false', ''):
+        return 0
+    number = float(value)
+    return int(number) if as_int else number
+
+
 @st.cache_data
-def generate_sample_data():
-    """Generate sample Nintendo video game data for demonstration"""
-    np.random.seed(42)
-    n_games = 1000
-    
-    # Generate realistic sample data
-    data = {
-        'game_name': [f'Game_{i}' for i in range(1, n_games + 1)],
-        'msrp': np.random.normal(39.99, 15, n_games).clip(9.99, 79.99).tolist(),
-        'release_year': np.random.randint(2015, 2025, n_games).tolist(),
-        'is_multiplayer': np.random.choice([0, 1], n_games, p=[0.6, 0.4]).tolist(),
-        'is_sequel': np.random.choice([0, 1], n_games, p=[0.7, 0.3]).tolist(),
-        'genre_primary_grouped': np.random.choice([
-            'Action', 'Adventure', 'RPG', 'Strategy', 'Sports', 'Puzzle', 'Simulation'
-        ], n_games).tolist(),
-        'platform_cleaned': np.random.choice([
-            'Nintendo Switch', 'Nintendo 3DS', 'Wii U', 'Wii'
-        ], n_games).tolist(),
-        'platform_count': np.random.randint(1, 4, n_games).tolist(),
-        'min_players': np.random.randint(1, 3, n_games).tolist(),
-        'max_players': np.random.randint(1, 8, n_games).tolist(),
-        'genre_count': np.random.randint(1, 4, n_games).tolist(),
-        'mode_handheld': np.random.choice([0, 1], n_games).tolist(),
-        'mode_docked': np.random.choice([0, 1], n_games).tolist(),
-        'mode_tabletop': np.random.choice([0, 1], n_games).tolist(),
-    }
-    
-    df = DataFrame(data)
-    
-    # Create derived features
-    df.data['game_age'] = [2024 - year for year in df.data['release_year']]
-    df.data['price_category'] = cut(df.data['msrp'], 
-                                   bins=[0, 20, 35, 50, 100], 
-                                   labels=['Budget', 'Standard', 'Premium', 'Deluxe'])
-    
-    # Add some genre-specific pricing patterns
-    for i in range(len(df)):
-        if df.data['genre_primary_grouped'][i] == 'RPG':
-            df.data['msrp'][i] *= 1.2
-        elif df.data['genre_primary_grouped'][i] == 'Sports':
-            df.data['msrp'][i] *= 0.9
-    
-    # Add sequel pricing premium
-    for i in range(len(df)):
-        if df.data['is_sequel'][i] == 1:
-            df.data['msrp'][i] *= 1.1
-    
-    return df
+def load_data():
+    """Load the real, cleaned DekuDeals dataset (22,123 Nintendo eShop games)."""
+    data = {col: [] for col in NUMERIC_COLS + TEXT_COLS}
+    with open(DATA_FILE, newline='', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        # The file repeats a few column names; use the first occurrence of each
+        index = {}
+        for i, name in enumerate(header):
+            index.setdefault(name, i)
+        for row in reader:
+            for col in NUMERIC_COLS:
+                data[col].append(_to_number(row[index[col]], col in INT_COLS))
+            for col in TEXT_COLS:
+                data[col].append(row[index[col]].strip())
+
+    data['game_name'] = data['title']
+    # Release dates can be a few days ahead of the scrape date, so never show a negative age
+    data['game_age'] = [max(0.0, age) for age in data['game_age']]
+    data['price_category'] = cut(
+        data['msrp'], bins=[0, 20, 35, 50, 1000], labels=['Budget', 'Standard', 'Premium', 'Deluxe']
+    )
+    return DataFrame(data)
+
 
 @st.cache_resource
 def train_model(_df):
@@ -522,15 +521,15 @@ def sequel_prediction_section(df, model, feature_cols):
             col1, col2 = st.columns(2)
             
             with col1:
-                msrp = st.number_input("MSRP ($)", min_value=0.0, max_value=200.0, value=39.99)
-                platform_count = st.number_input("Platform Count", min_value=1, max_value=10, value=1)
+                msrp = st.number_input("MSRP ($)", min_value=0.0, max_value=200.0, value=19.99)
+                platform_count = st.number_input("Platform Count", min_value=1, max_value=7, value=2)
                 min_players = st.number_input("Min Players", min_value=1, max_value=100, value=1)
                 max_players = st.number_input("Max Players", min_value=1, max_value=100, value=4)
                 is_multiplayer = st.selectbox("Multiplayer", [0, 1])
-                release_year = st.number_input("Release Year", min_value=1990, max_value=2024, value=2024)
+                release_year = st.number_input("Release Year", min_value=2000, max_value=2026, value=2025)
             
             with col2:
-                game_age = 2024 - release_year
+                game_age = max(0, 2025 - release_year)
                 genre_count = st.number_input("Genre Count", min_value=1, max_value=10, value=1)
                 mode_handheld = st.selectbox("Handheld Mode", [0, 1])
                 mode_docked = st.selectbox("Docked Mode", [0, 1])
@@ -706,8 +705,8 @@ def main():
     # Header
     st.markdown('<h1 class="main-header">🎮 Nintendo Video Game Analytics Dashboard</h1>', unsafe_allow_html=True)
     
-    # Load sample data
-    df = generate_sample_data()
+    # Load the real dataset
+    df = load_data()
     
     # Train model
     model, feature_cols = train_model(df)
